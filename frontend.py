@@ -1,6 +1,6 @@
 import streamlit as st
-from backend import workflow
-from langchain_core.messages import  HumanMessage
+from backend import workflow , retrieve_all_threads
+from langchain_core.messages import  HumanMessage,AIMessage
 import uuid
 
 
@@ -16,15 +16,8 @@ def reset_chat():
     st.session_state['messages']=[]
 
 def add_thread(thread_id):
-    exist = False   
-    for thread in st.session_state['chat_threads']:
-        if(thread['thread_id']==thread_id):
-            exist=True
-            break
-
-    if (exist==False):
-        st.session_state['chat_threads'].append({'thread_id':thread_id,'content':thread_id})   
-
+    if thread_id not in st.session_state['chat_threads']:
+        st.session_state['chat_threads'].append(thread_id) 
 
 
 def load_conversation(thread_id):
@@ -43,7 +36,7 @@ if 'thread_id' not in st.session_state:
     st.session_state['thread_id'] = generate_thread_id()  
 
 if 'chat_threads' not in st.session_state:
-    st.session_state['chat_threads']=[]      
+    st.session_state['chat_threads']=retrieve_all_threads()      
 
 add_thread(st.session_state['thread_id'])
 
@@ -56,10 +49,15 @@ if st.sidebar.button('New Chat'):
     
 st.sidebar.header('My Conversations')
 
-for thread in st.session_state['chat_threads']:
-    if st.sidebar.button(str(thread['content'])):
-      st.session_state['thread_id'] = thread['thread_id']
-      messages = load_conversation(thread['thread_id'])
+for thread_id in reversed(st.session_state['chat_threads']):
+    
+    messages = load_conversation(thread_id)
+    if len(messages) == 0:
+        continue
+
+    if st.sidebar.button(str(thread_id)):
+      st.session_state['thread_id'] = thread_id
+      messages = load_conversation(thread_id)
 
       temp_messages=[]
       
@@ -89,13 +87,16 @@ if (user_input):
        st.text(user_input)
  
     with st.chat_message('assistant'):
-        ai_message = st.write_stream(
-            message_chunk.content for message_chunk, metadata in workflow.stream(
+        def ai_only_stream():
+            for message_chunk, metadata in workflow.stream(
                 {'messages':[HumanMessage(content=user_input)]},
                 config={'configurable':{'thread_id':st.session_state['thread_id']}},
                 stream_mode='messages'
-            )
-        )
+            ):
+                if isinstance(message_chunk,AIMessage):
+                    yield message_chunk.content
+
+        ai_message=st.write_stream (ai_only_stream()) 
 
     st.session_state['messages'].append(
         {'role':'assistant','content':ai_message}
